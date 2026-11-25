@@ -1,0 +1,29 @@
+# Test report
+
+## Baseline and final runs
+
+The supplied version passed all 21 original checks. The baseline energy test expected a lower score for an incompatible task, the tie test counted results without checking their order, and the recurrence test accepted any future timestamp. The final suite asserts exclusion, exact ordering, and exact recurrence boundaries.
+
+On November 25, 2026, `powershell -File .\test.ps1 -Browser` passed all 17 Node tests and the Chromium end-to-end suite on Windows with Node 24.18.0. The headless browser used a disposable profile. It ran outside the command sandbox after Chromium's GPU process could not start within it. Chromium's own process sandbox remained enabled.
+
+- Node covered eligibility constraints, urgency, modes, deterministic ties, recurrence and flexible targets, contractual deadline preservation, timer calculations, midnight crossing, validation, duplicate IDs, version 1 conversion, plan preview, merge behavior and unavailable storage.
+- Chromium covered task capture and editing, completion and reopening, archiving during an active timer, cycle associations, pause across reload, resume, duration correction, nap logging, financial entry and correction, pending-to-received updates, selective AI import, HTML escaping, backup preview, replacement and recovery.
+- Chromium used real IndexedDB to verify one-time migration, persistence, invalid write rejection, restore recovery and stale-tab conflict handling.
+- Chromium tested all five screens at 360, 390, 768, 1024 and 1920 CSS pixels, with 25 horizontal overflow checks. It reloaded offline with a section fragment after the test server stopped and verified persisted records.
+- Release packaging extracts the archive and compares every extracted file against the corresponding source SHA-256.
+
+## Recommendation engine benchmark
+
+Twenty timed samples per size after three warmups. Each sample ranks the top three candidates from an in-memory synthetic task list with a 30-minute filter and mixed estimates. Times are milliseconds.
+
+| Tasks | Median | p95 |
+| ---: | ---: | ---: |
+| 100 | 0.131 | 0.337 |
+| 1,000 | 0.568 | 0.989 |
+| 10,000 | 5.169 | 7.007 |
+
+These measurements cover the recommendation engine. Startup, browsing CPU, memory and battery consumption were outside the measurements.
+
+## Remaining verification
+
+Physical Android installation, interactive Windows installation prompts, device sleep and screen-lock tests, cross-browser compatibility and an assistive technology audit remain unverified. Background and clock-change behavior was exercised through timestamp calculations and persisted timer reloads.

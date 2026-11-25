@@ -1,0 +1,35 @@
+{
+  "format": "sahaja-plan",
+  "version": 1,
+  "projects": [
+    {
+      "title": "Operation Independence",
+      "goal": "Build a reliable remote income stream"
+    }
+  ],
+  "tasks": [
+    {
+      "title": "Draft a freelance proposal",
+      "dim": "Earn",
+      "project": "Operation Independence",
+      "est": 25,
+      "energy": 2,
+      "priority": 3,
+      "device": "computer",
+      "online": false,
+      "subtasks": [
+        {
+          "title": "Outline what the client needs",
+          "done": false
+        }
+      ]
+    },
+    {
+      "title": "Take a short walk",
+      "dim": "Rest",
+      "est": 15,
+      "energy": 1,
+      "priority": 2
+    }
+  ]
+}
