@@ -69,7 +69,8 @@ const Model = (() => {
     const ms = correction ?? elapsed(a, now);
     const end = Math.max(now, a.start);
     if (t) t.actual += ms;
-    s.sessions.push({id:id(), tid:a.id, cycle:a.cycle, dim:t?.dim ?? '', kind:'Focus', s:a.start, e:end, ms, note});
+    s.sessions.push({id:id(), tid:a.id, cycle:a.cycle, dim:t?.dim ?? '', kind:'Focus', s:a.start, e:end, ms, note,
+      ...(t?{title:t.title,project:t.proj,estimate:t.est}:{})});
     s.active = null;
   }
   function complete(s, t, now) {
@@ -82,6 +83,51 @@ const Model = (() => {
       t.nextMade = true;
       s.tasks.push(next);
     }
+  }
+  function correctSession(s, id, ms) {
+    const session=s.sessions.find(x=>x.id===id);
+    const task=s.tasks.find(t=>t.id===session.tid);
+    if (task) task.actual=Math.max(0,task.actual+ms-session.ms);
+    session.ms=ms;
+  }
+  function activity(s, period, now=Date.now()) {
+    const cycle=period==='cycle'?openCycle(s):null;
+    const days={today:1,week:7,month:30}[period];
+    const date=new Date(now);
+    const start=days?new Date(date.getFullYear(),date.getMonth(),date.getDate()-days+1).getTime():cycle?.s??0;
+    const matches=n=>n>=start&&n<=now;
+    const history=[], taskTimes=new Map(), projects=new Map(), dims=new Map(), kinds=new Map();
+    const tasks=new Map(s.tasks.map(t=>[t.id,t]));
+    const add=(map,key,ms)=>map.set(key,(map.get(key)??0)+ms);
+    let total=0;
+    const completed=period==='cycle'&&!cycle?0:s.tasks.filter(t=>t.done!==null&&matches(t.done)).length;
+    for (const entry of s.sessions) {
+      if (period==='cycle' ? !cycle||entry.cycle!==cycle.id : entry.e<start||entry.s>now) continue;
+      const timeAt=n=>Math.floor(entry.ms*Math.max(0,Math.min(1,(n-entry.s)/(entry.e-entry.s))));
+      const ms=period==='cycle'||entry.s===entry.e?entry.ms:timeAt(now)-timeAt(start);
+      const task=tasks.get(entry.tid);
+      const title=entry.title??task?.title??'Deleted task';
+      history.push({...entry,timeInRange:ms,title});
+      total+=ms;
+      if (!ms) continue;
+      add(kinds,entry.kind,ms);
+      if (entry.kind!=='Focus') continue;
+      add(projects,(entry.project??task?.proj)||'Unassigned',ms);
+      add(dims,entry.dim||'Unassigned',ms);
+      if (!entry.tid) continue;
+      const row=taskTimes.get(entry.tid)??{title,ms:0,estimate:0,latest:-1};
+      row.ms+=ms;
+      if (entry.e>=row.latest) {
+        row.title=title;
+        row.estimate=entry.estimate??task?.est??0;
+        row.latest=entry.e;
+      }
+      taskTimes.set(entry.tid,row);
+    }
+    const breakdown=map=>[...map].map(([title,ms])=>({title,ms})).sort((a,b)=>b.ms-a.ms);
+    return {total,completed,history:history.sort((a,b)=>b.s-a.s),cycle,
+      tasks:[...taskTimes.values()].sort((a,b)=>b.ms-a.ms),
+      projects:breakdown(projects),dimensions:breakdown(dims),kinds:breakdown(kinds)};
   }
   const record = x => x !== null && typeof x === 'object' && !Array.isArray(x);
   const string = (x,n=200) => typeof x === 'string' && x.length <= n;
@@ -121,7 +167,9 @@ const Model = (() => {
         s.cycles.filter(x=>!x.e).length>1) throw Error('Invalid cycles.');
     if (!s.sessions.every(x=>stamp(x.s)&&stamp(x.e)&&x.e>=x.s&&stamp(x.ms)&&ref(x.tid)&&
         cycleRef(x.cycle)&&string(x.dim,80)&&['Focus','Meditation','Rest','Nap'].includes(x.kind)&&
-        (x.note===undefined||string(x.note,4000)))) throw Error('Invalid sessions.');
+        (x.note===undefined||string(x.note,4000))&&(x.title===undefined||name(x.title))&&
+        (x.project===undefined||string(x.project,120))&&
+        (x.estimate===undefined||integer(x.estimate,0,1440)))) throw Error('Invalid sessions.');
     if (!s.money.every(x=>stamp(x.ts)&&Number.isFinite(x.amt)&&x.amt>0&&x.amt<=1e12&&
         ['in','out'].includes(x.type)&&['received','pending'].includes(x.st)&&string(x.note,500))) throw Error('Invalid financial entries.');
     const a = s.active;
@@ -267,6 +315,35 @@ const Model = (() => {
       return {t,duplicate};
     })};
   }
-  return {empty,task,id,rank,occurrence,elapsed,stop,complete,openCycle,validate,upgrade,merge,plan,key,collections,modes,minute,day};
+  function planPrompt(goal,dims) {
+    const example={
+      format:'sahaja-plan',version:1,
+      projects:[{title:'Portfolio',goal:'Make it easy to understand my work'}],
+      tasks:[{title:'Draft a short case study',dim:dims[0],project:'Portfolio',est:25,
+        energy:2,priority:2,device:'computer',online:false,notes:'Start with the problem and outcome.',
+        subtasks:[{title:'Write a one-sentence summary',done:false}]}]
+    };
+    return [
+      'Turn the goal below into a practical, personalized plan for SAHAJA. Return only a JSON object, without Markdown.',
+      'Give projects clear goals and choose specific, actionable tasks. Keep the plan small. Use flexible sequencing, varied energy levels and realistic estimates. Include a device requirement only where helpful. Add deadlines only when useful or explicitly supplied.',
+      'My goal and context (JSON string): '+JSON.stringify(goal),
+      'Supported SAHAJA interchange format:',
+      'Top level: format (exactly "sahaja-plan"), version (exactly 1), tasks (required array, at most 10000), projects (optional array).',
+      'Project: title (required, unique case-insensitively, 1–120 characters), goal (optional string, up to 500 characters).',
+      'Task: title (required, 1–200 characters). All other fields are optional:',
+      '- dim: existing dimension name, case-insensitive. Allowed names: '+JSON.stringify(dims)+'. Default: the first dimension.',
+      '- project: project label, up to 120 characters. Match the project title when referring to a project.',
+      '- est: integer minutes from 0 to 1440 (0 means unknown).',
+      '- priority and energy: integers 1 (low), 2 (medium, default), or 3 (high).',
+      '- device: "any" (default), "phone", or "computer". online: boolean, true if internet is required.',
+      '- notes: string up to 4000 characters. rec: "" (default), "daily", or "weekly".',
+      '- start and deadline: ISO date-time strings with Z or a numeric UTC offset. Omit either when unspecified.',
+      '- deadlineKind: "external" (default, fixed deadline) or "flexible" (moveable target).',
+      '- subtasks: array of up to 50 objects with title (1–200 characters) and done (boolean).',
+      'Valid example:',JSON.stringify(example,null,2)
+    ].join('\n');
+  }
+  return {empty,task,id,rank,occurrence,elapsed,stop,complete,correctSession,activity,openCycle,
+    validate,upgrade,merge,plan,planPrompt,key,collections,modes,minute,day};
 })();
 if (typeof module !== 'undefined') module.exports = Model;

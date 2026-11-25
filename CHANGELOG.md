@@ -1,5 +1,11 @@
 # Changelog
 
+## Final feature freeze
+
+- Added the optional Outreach & Communication starter project and a local AI prompt generator with a shortcut to import preview.
+- Added activity periods, recorded-time breakdowns, estimate comparisons and in-place session corrections.
+- Added voluntary feedback copying and app sharing. Future changes are limited to demonstrated user needs, security requirements and practical issues reported during use.
+
 ## 1.0.0 Final
 
 - Corrected recommendation eligibility, recurrence intervals, repeat generation on reopening and flexible target dates.

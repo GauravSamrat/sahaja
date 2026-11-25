@@ -1,7 +1,7 @@
 'use strict';
 const scope = self.registration.scope;
 const prefix = 'sahaja-shell:'+scope+':';
-const cacheName = prefix+'3';
+const cacheName = prefix+'4';
 const resources = ['./','index.html','style.css','app.js','model.js','repository.js','manifest.json','icon-192.png','icon-512.png'];
 const urls = new Set(resources.map(path=>new URL(path,scope).href));
 self.addEventListener('install', event=>{

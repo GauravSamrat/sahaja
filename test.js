@@ -127,6 +127,54 @@ test('merge preserves current records on collision, remaps dimensions and handle
 test('unavailable storage rejects startup explicitly',async()=>{
   await a.rejects(R.open(null),/unavailable/);
 });
+test('activity partitions recorded time and counts completions without inventing duration',()=>{
+  const midnight=new Date(2026,10,25).getTime(), end=midnight+2*M.minute;
+  const t=make({id:'task',title:'Current title',proj:'Current project',est:25,actual:500*M.minute,done:end,status:'done'});
+  const untracked=make({id:'untracked',done:end,status:'done'});
+  const cycle={id:'cycle',s:midnight-4*M.minute,e:0};
+  const entry={id:'focus',tid:t.id,cycle:cycle.id,dim:'Earn',kind:'Focus',
+    s:midnight-M.minute,e:midnight+M.minute,ms:60001,title:'Earlier title',project:'Earlier project',estimate:30};
+  const rest={id:'rest',tid:null,cycle:cycle.id,dim:'',kind:'Rest',s:end,e:end,ms:M.minute};
+  const s={...base(),tasks:[t,untracked],cycles:[cycle],sessions:[entry,rest]};
+  M.validate(s);
+  const today=M.activity(s,'today',end);
+  a.equal(today.total,90001);
+  a.equal(today.completed,2);
+  a.equal(today.tasks.length,1);
+  a.equal(today.tasks[0].title,'Earlier title');
+  a.equal(today.tasks[0].estimate,30);
+  a.deepEqual(today.projects,[{title:'Earlier project',ms:30001}]);
+  a.deepEqual(today.dimensions,[{title:'Earn',ms:30001}]);
+  a.equal(today.kinds.find(k=>k.title==='Rest').ms,M.minute);
+  a.equal(M.activity(s,'cycle',end).total,120001);
+  a.equal(M.activity(s,'all',end).total,120001);
+  a.equal(M.activity(s,'week',end).total,120001);
+  a.equal(M.activity(s,'month',end).total,120001);
+  a.equal(M.activity({...s,cycles:[{...cycle,e:end}]},'cycle',end).history.length,0);
+});
+test('session correction replaces duration and backup merge keeps a single record',()=>{
+  const t=make({actual:10*M.minute}), s={...base(),tasks:[t],
+    active:{id:t.id,start:now,running:now,ms:0,cycle:null}};
+  M.stop(s,now+M.minute);
+  const original=structuredClone(s);
+  M.correctSession(s,s.sessions[0].id,2*M.minute);
+  M.correctSession(s,s.sessions[0].id,2*M.minute);
+  a.equal(t.actual,12*M.minute);
+  const backup=M.upgrade(JSON.parse(JSON.stringify(s)));
+  a.equal(backup.sessions[0].ms,2*M.minute);
+  a.equal(M.merge(backup,original).sessions.length,1);
+});
+test('generated prompt includes a valid interchangeable example and the workspace dimensions',()=>{
+  const s={...base(),dims:['Other & Learning']};
+  const text=M.planPrompt('Build a portfolio',s.dims);
+  a.match(text,/Build a portfolio/);
+  a.match(text,/Other & Learning/);
+  const example=JSON.parse(text.split('Valid example:\n')[1]);
+  const preview=M.plan(example,s,now);
+  a.equal(preview.tasks[0].t.dim,s.dims[0]);
+  a.equal(preview.projects[0].title,'Portfolio');
+  a.equal(s.tasks.length,0);
+});
 for(const n of [100,1000,10000]) {
   test('rank '+n+' tasks',()=>{
     const tasks=Array.from({length:n},(_,i)=>make({id:String(i),est:5+i%60,pp:i%4}));

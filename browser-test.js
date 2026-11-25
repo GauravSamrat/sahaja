@@ -123,6 +123,12 @@ async function run() {
   await action('log');
   await submit('log',{kind:'Nap',minutes:1});
   await wait('state.sessions.length===3');
+  await evaluate('(()=>{const e=document.querySelector("[name=activity-period]");e.value="cycle";e.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  await wait('document.querySelector("meter")');
+  await evaluate('(()=>{const e=document.querySelector("[name=activity-period]");e.value="all";e.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  await evaluate('document.querySelector(\'[data-action=session-edit][data-id="\'+state.sessions.find(x=>x.kind==="Nap").id+\'"]\').click()');
+  await submit('session',{seconds:90});
+  await wait('state.sessions.find(x=>x.kind==="Nap").ms===90000 && !document.querySelector("dialog").open');
   await go('money','Money');
   await action('money-edit');
   await submit('money',{amt:155.55,st:'pending',note:'Invoice'});
@@ -133,6 +139,11 @@ async function run() {
   await submit('money',{amt:150});
   await wait('state.money[0]?.amt===150');
   await go('data','Workspace');
+  await submit('generate-plan',{goal:'Write <strong>a guide</strong>'});
+  await wait('document.getElementById("generated-prompt").value.includes("Write <strong>a guide</strong>")');
+  a.equal(await evaluate('document.querySelector("#generated-prompt strong")'),null);
+  await action('go-import');
+  a.equal(await evaluate('document.activeElement.id'),'plan-json');
   const malicious = '<img src=x onerror=alert(1)>';
   await submit('plan',{json:JSON.stringify({format:'sahaja-plan',version:1,tasks:[
     {title:malicious,est:5},{title:'Skipped item',est:5}
@@ -159,6 +170,7 @@ async function run() {
   await wait('document.querySelector("[data-action=replace]")');
   await action('replace');
   await wait('state.tasks.length===3 && state.money[0]?.amt===150');
+  a.equal(await evaluate('state.sessions.find(x=>x.kind==="Nap")?.ms'),90000);
   const storage=await evaluate(String.raw`(async()=>{
     const n=Date.now(), key='qa-'+crypto.randomUUID();
     const legacy={v:1,dims:['Earn'],tasks:[{id:'legacy" onclick="bad',title:'Old',status:'open',created:n}],
@@ -195,8 +207,14 @@ async function run() {
   await reload();
   a.equal(await evaluate('state.money[0].amt'),150);
   a.equal(await evaluate('state.tasks.length'),3);
+  await action('outreach');
+  await wait('state.projects.some(p=>p.title==="Outreach & Communication") && state.tasks.length===14');
+  a.equal(await evaluate('document.querySelector("[data-action=outreach]")'),null);
+  await action('feedback');
+  a.equal(await evaluate('document.getElementById("feedback-text").value'),'');
+  a.equal(await evaluate('document.querySelector("dialog a").href'),'https://github.com/GauravSamrat/sahaja/issues/new');
   a.deepEqual(exceptions,[]);
-  console.log('PASS Chromium workflows, IndexedDB migration and transactional restore, conflicts, offline reload and 25 viewport checks');
+  console.log('PASS Chromium workflows, session correction, AI prompt, outreach, feedback, IndexedDB migration and restore, offline reload and 25 viewport checks');
 }
 run().catch(error=>{console.error(error);process.exitCode=1;}).finally(async()=>{
   server.kill();

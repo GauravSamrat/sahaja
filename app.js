@@ -130,26 +130,39 @@ function tasksView() {
     select('Status','filter',[['open','Open'],['done','Completed'],['arch','Archived'],['all','All tasks']],filter)+
     '</div><section id="results" aria-label="Task results">'+results()+'</section></div>';
 }
+const periods=[['today','Today'],['cycle','Current working cycle'],['week','Last 7 days'],['month','Last 30 days'],['all','All time']];
+let activityPeriod='week', activityLimit=12;
+const tracked=ms=>ms>0&&ms<M.minute?'<1 min':mins(ms);
+function breakdown(title, rows, taskRows=false) {
+  if (!rows.length) return '';
+  const largest=rows[0].ms;
+  const limit=10;
+  const line=row=>'<div class="activity-row"><div class="row"><span class="grow">'+esc(row.title)+'</span><span>'+
+    esc(tracked(row.ms))+' recorded'+(taskRows&&row.estimate?' · '+row.estimate+' min estimated':'')+
+    '</span></div><meter aria-label="'+esc(row.title)+' recorded duration" min="0" max="'+largest+'" value="'+row.ms+'"></meter></div>';
+  return '<section class="panel"><h2>'+title+'</h2>'+rows.slice(0,limit).map(line).join('')+
+    (rows.length>limit?'<details><summary>Show '+(rows.length-limit)+' more</summary>'+rows.slice(limit).map(line).join('')+'</details>':'')+
+    '</section>';
+}
 function weekView() {
-  const now=new Date();
-  const since=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6).getTime();
-  const totals=new Map();
-  for (const s of state.sessions) {
-    if (s.e<since) continue;
-    const k=s.kind==='Focus'?(s.dim||'Focus'):s.kind;
-    const fraction=s.s<since&&s.e>s.s?(s.e-since)/(s.e-s.s):1;
-    totals.set(k,(totals.get(k)||0)+Math.round(s.ms*fraction));
-  }
-  const cycles=[...state.cycles].sort((a,b)=>b.s-a.s);
-  const cycleList=new Map(cycles.map(c=>[c.id,c]));
+  const report=M.activity(state,activityPeriod);
+  const noCycle=activityPeriod==='cycle'&&!report.cycle;
   return '<h1>Activity</h1><div class="stack">'+cycleControls()+
-    '<section class="panel"><h2>Last seven calendar days</h2>'+[...totals].map(([k,v])=>'<p>'+esc(k)+' · '+mins(v)+'</p>').join('')+
-    (!totals.size?'<p class="small">No activity logged in this period.</p>':'')+btn('log','Log meditation, rest or nap','',true)+'</section>'+
-    '<section><h2>Recent sessions</h2>'+[...state.sessions].sort((a,b)=>b.s-a.s).slice(0,30).map(s=>
-      '<article class="item"><h3>'+esc(s.kind)+' · '+mins(s.ms)+'</h3><p class="small">'+esc(date(s.s))+
-      (cycleList.has(s.cycle)?' · Cycle from '+esc(date(cycleList.get(s.cycle).s)):' · Outside a cycle')+
-      (s.note?' · '+esc(s.note):'')+'</p></article>').join('')+'</section>'+
-    '<section><h2>Recent cycles</h2>'+cycles.slice(0,10).map(c=>'<p>'+esc(date(c.s))+' · '+(c.e?mins(c.e-c.s):'Running')+'</p>').join('')+'</section></div>';
+    '<section class="panel stack"><h2>Activity summary</h2>'+select('Period','activity-period',periods,activityPeriod)+
+    (noCycle?'<p class="small">Start a working cycle to see activity for that cycle.</p>':
+      '<p><strong>'+esc(tracked(report.total))+'</strong> recorded · <strong>'+report.completed+'</strong> currently completed</p>')+
+    btn('log','Log meditation, rest or nap','',true)+'</section>'+
+    breakdown('Time by activity',report.kinds)+breakdown('Time by project',report.projects)+
+    breakdown('Time by dimension',report.dimensions)+breakdown('Time by task',report.tasks,true)+
+    '<section><h2>Recent activity</h2>'+
+    (report.history.length?'':'<p class="small">No sessions in this period.</p>')+
+    report.history.slice(0,activityLimit).map(s=>
+      '<article class="item"><h3>'+esc(s.kind==='Focus'?s.title:s.kind)+'</h3><p class="small">'+esc(date(s.s))+' · '+
+      esc(tracked(s.timeInRange))+' recorded in this period'+(s.cycle?' · Linked to a cycle':'')+
+      (s.note?' · '+esc(s.note):'')+'</p>'+btn('session-edit','Correct session',s.id)+'</article>').join('')+
+    (report.history.length>activityLimit?btn('activity-more','Show more sessions'):'')+'</section>'+
+    '<section><h2>Recent cycles</h2>'+[...state.cycles].sort((a,b)=>b.s-a.s).slice(0,10).map(c=>
+      '<p>'+esc(date(c.s))+' · '+(c.e?mins(c.e-c.s):'Running')+'</p>').join('')+'</section></div>';
 }
 function moneyView() {
   const now=new Date(), month=new Date(now.getFullYear(),now.getMonth(),1).getTime(),
@@ -182,11 +195,27 @@ function previewView() {
       (t.proj?' · '+esc(t.proj):'')+'</small></span></label>').join('')+
     '<div class="row"><button class="primary">Import selection</button>'+btn('dismiss','Cancel')+'</div></form>';
 }
+const outreachTitle='Outreach & Communication';
+const outreachTasks=[
+  ['Write an honest Citta product update','Create',30],['Update your personal portfolio','Create',45],
+  ['Draft a useful social media post','Create',25],['Share a Citta use case on LinkedIn','Earn',20],
+  ['Respond to questions in a relevant Facebook group','Earn',15],['Prepare an Instagram product walkthrough','Create',30],
+  ['Outline a YouTube product demo','Create',45],['Answer a community question','Earn',15],
+  ['Contact a potential customer with a relevant use case','Earn',25],['Review and respond to user feedback','Manage',20],
+  ['Prepare a short product demonstration','Create',30]
+];
+let aiGoal='', aiPrompt='';
+const liveUrl='https://gauravsamrat.github.io/sahaja/';
 function dataView() {
   return '<h1>Workspace</h1><div class="stack"><section class="panel stack"><h2>Backup and restore</h2>'+
     '<div class="row">'+btn('export','Export JSON','',true)+btn('recovery','Preview recovery copy')+
     '</div><label>Preview backup file<input id="backup-file" type="file" accept=".json,application/json"></label>'+
     '<p class="small">Records are local to this browser profile. Export a backup to move records to another device.</p></section>'+
+    '<section class="panel stack"><h2>Plan with AI</h2><form data-form="generate-plan" class="stack">'+
+    '<label>What do you want to achieve?<textarea name="goal" rows="3" maxlength="3000" required>'+esc(aiGoal)+'</textarea></label>'+
+    '<button>Generate prompt</button></form>'+
+    (aiPrompt?'<label>Prompt to paste into your AI assistant<textarea id="generated-prompt" readonly rows="6">'+esc(aiPrompt)+
+      '</textarea></label><div class="row">'+btn('copy-prompt','Copy prompt')+btn('go-import','Go to JSON import')+'</div>':'')+'</section>'+
     '<section class="panel stack"><h2>Import an AI plan</h2><form data-form="plan" class="stack"><label>Paste JSON'+
     '<textarea name="json" id="plan-json" rows="4" required></textarea></label><div class="row"><button>Preview pasted plan</button>'+
     '</div></form><label>Preview plan file<input id="plan-file" type="file" accept=".json,application/json"></label></section>'+
@@ -194,8 +223,11 @@ function dataView() {
     '<span class="grow">'+esc(d)+'</span>'+btn('dimension','Rename',d)+'</div>').join('')+btn('dimension','Add dimension')+'</section>'+
     '<section class="panel"><h2>Projects and goals</h2>'+state.projects.map(p=>'<article class="item"><h3>'+esc(p.title)+'</h3>'+
     (p.goal?'<p>'+esc(p.goal)+'</p>':'')+btn('project','Edit',p.id)+btn('project-delete','Remove project',p.id)+'</article>').join('')+
-    btn('project','Add project')+'</section><section class="panel"><h2>Appearance</h2>'+btn('theme','Switch to '+
-    (state.theme==='light'?'dark':'light')+' theme')+'</section></div>';
+    '<div class="row">'+btn('project','Add project')+
+    (state.projects.some(p=>p.title.toLowerCase()===outreachTitle.toLowerCase())?'':btn('outreach','Add Outreach & Communication starter'))+
+    '</div></section><section class="panel"><h2>Appearance</h2>'+btn('theme','Switch to '+
+    (state.theme==='light'?'dark':'light')+' theme')+'</section><section class="panel"><h2>Share or give feedback</h2>'+
+    '<div class="row">'+btn('share','Copy app link')+btn('feedback','Write feedback')+'</div></section></div>';
 }
 function renderTimer() {
   clearTimeout(tick);
@@ -296,6 +328,29 @@ function showPreview(kind,value) {
   const h=[...$('v').querySelectorAll('h2')].find(e=>e.textContent.endsWith('preview'));
   if (h) { h.tabIndex=-1; h.focus(); }
 }
+async function copyText(text,fieldId) {
+  try {
+    await navigator.clipboard.writeText(text);
+    notice('Copied.');
+  } catch {
+    if (fieldId) {
+      $(fieldId).focus();
+      $(fieldId).select();
+      notice('Text selected. Copy it with your device’s copy command.');
+      return;
+    }
+    prompt('Copy this link',text);
+  }
+}
+function sessionEditor(id) {
+  const s=state.sessions.find(x=>x.id===id);
+  modal('Correct session','session','<input type="hidden" name="id" value="'+esc(id)+'">'+
+    numerical('Recorded seconds','seconds',s.ms/1000,0,8640000000,.001)+
+    (s.kind==='Focus'?'':select('Activity','kind',names(['Meditation','Rest','Nap']),s.kind))+
+    field('Started at','start',local(s.s),'type="datetime-local" required')+
+    field('Ended at','end',local(s.e),'type="datetime-local" required')+
+    '<label class="wide">Note<textarea name="note" maxlength="4000">'+esc(s.note??'')+'</textarea></label>');
+}
 const act = {
   empty:()=>setup(false),
   starter:()=>setup(true),
@@ -305,6 +360,24 @@ const act = {
   'page-prev':()=>{page--;$('results').innerHTML=results();$('results').querySelector('button')?.focus();},
   'page-next':()=>{page++;$('results').innerHTML=results();$('results').querySelector('button')?.focus();},
   'money-more':()=>{moneyLimit+=30;render();},
+  'activity-more':()=>{activityLimit+=12;render();},
+  'session-edit':sessionEditor,
+  outreach:()=>change(s=>{
+    if (s.projects.some(p=>p.title.toLowerCase()===outreachTitle.toLowerCase())) return;
+    s.projects.push({id:M.id(),title:outreachTitle,goal:'Share useful information and build relationships through honest communication.'});
+    const keys=new Set(s.tasks.map(M.key));
+    for (const [title,dim,est] of outreachTasks) {
+      const t={...M.task(title,s.dims.includes(dim)?dim:s.dims[0]),proj:outreachTitle,est};
+      if (!keys.has(M.key(t))) s.tasks.push(t);
+    }
+  },{message:'Starter project added. You can edit its tasks or remove them.'}),
+  'copy-prompt':()=>copyText(aiPrompt,'generated-prompt'),
+  'go-import':()=>$('plan-json').focus(),
+  share:()=>copyText(liveUrl),
+  feedback:()=>modal('Share feedback','feedback',
+    '<label class="wide">Your feedback<textarea id="feedback-text" name="message" rows="6" maxlength="4000" required></textarea></label>'+
+    '<p class="wide small">Only text you choose to copy leaves this screen. Avoid personal details if posting publicly.</p>'+
+    '<p class="wide"><a href="https://github.com/GauravSamrat/sahaja/issues/new" target="_blank" rel="noopener noreferrer">Open the public feedback form on GitHub</a></p>','Copy feedback'),
   begin:(id,n)=>change(s=>{
     if (s.active?.id===id) return;
     if (s.active) M.stop(s,n);
@@ -399,6 +472,18 @@ const forms = {
     t.pp=Math.min(1e9,t.pp+1);
   },
   correct:(s,f)=>{M.stop(s,Date.now(),Math.round(Number(f.get('minutes'))*M.minute),f.get('note').trim());},
+  session:(s,f)=>{
+    const entry=s.sessions.find(x=>x.id===f.get('id'));
+    const unchanged=(name,value)=>f.get(name)===local(value);
+    const start=unchanged('start',entry.s)?entry.s:parseLocal(f.get('start'));
+    const end=unchanged('end',entry.e)?entry.e:parseLocal(f.get('end'));
+    if (end<start||end>Date.now()) throw Error('Choose a start and end in order, up to the current time.');
+    if (start!==entry.s) {
+      entry.cycle=[...s.cycles].sort((a,b)=>b.s-a.s).find(c=>c.s<=start&&(!c.e||c.e>=start))?.id??null;
+    }
+    Object.assign(entry,{s:start,e:end,note:f.get('note').trim(),kind:f.get('kind')??entry.kind});
+    M.correctSession(s,entry.id,Math.round(Number(f.get('seconds'))*1000));
+  },
   money:(s,f)=>{
     const id=f.get('id');
     const prior=s.money.find(m=>m.id===id);
@@ -469,6 +554,18 @@ document.addEventListener('submit',async e=>{
   if (busy) return;
   if (e.isTrusted) requestPersistence();
   const data=new FormData(form);
+  if(kind==='generate-plan') {
+    aiGoal=data.get('goal').trim();
+    if (!aiGoal) {notice('Describe your goal to generate a prompt.');return;}
+    aiPrompt=M.planPrompt(aiGoal,state.dims);
+    render();
+    $('generated-prompt').focus();
+    return;
+  }
+  if(kind==='feedback') {
+    await copyText(data.get('message'),'feedback-text');
+    return;
+  }
   if(kind==='plan') {
     try {showPreview('plan',JSON.parse(data.get('json')));}
     catch(error) {notice('Plan rejected. '+error.message);}
@@ -486,6 +583,7 @@ document.addEventListener('submit',async e=>{
   }
 });
 document.addEventListener('input',e=>{
+  if (e.target.form?.dataset.form==='generate-plan') aiGoal=e.target.value;
   if(e.target.id!=='search') return;
   query=e.target.value;page=0;
   clearTimeout(debounce);
@@ -493,6 +591,13 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',async e=>{
   const el=e.target;
+  if(el.name==='activity-period') {
+    activityPeriod=el.value;
+    activityLimit=12;
+    render();
+    $('v').querySelector('[name="activity-period"]').focus();
+    return;
+  }
   if(el.name==='filter') {filter=el.value;page=0;$('results').innerHTML=results();return;}
   if(el.form?.dataset.form==='context') {
     const key=el.name, value=el.value;
